@@ -513,6 +513,7 @@ function propagateUp(childKey){
       rightDom.classList.remove('empty');
     }
     if(leftText && rightText){
+      state.data[finalNode.key] = { text: null };
       const finalEl = state.nodesMap[finalNode.key].el;
       finalEl.textContent = 'Click to choose final winner';
       finalEl.classList.remove('empty');
