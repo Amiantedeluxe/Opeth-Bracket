@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Opeth Bracket – Interactive (click to choose)</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --accent:#111;
+    --box-bg: rgba(255,255,255,0.92);
+    --box-border: #111;
+    --font: "Helvetica Neue", Arial, sans-serif;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font);color:var(--accent)}
+  #stage { position:relative; width:100%; max-width:2600px; margin:10px auto; border:0; }
+  #bracket-bg { display:block; width:100%; height:auto; }
+  .node {
+    position:absolute;
+    transform: translate(-50%,-50%);
+    min-width: 160px;
+    max-width: 180px;
+    padding:4px 6px;
+    border-radius:6px;
+    background: var(--box-bg);
+    border:1px solid var(--box-border);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    font-size:11px;
+    line-height:1.15;
+    cursor:pointer;
+    text-align:center;
+    user-select:none;
+  }
+  .node.leaf { 
+    min-width: 160px; 
+    max-width: 180px;
+    height: 28px; 
+    display:flex; 
+    align-items:center; 
+    justify-content:center; 
+    padding:3px 6px; 
+    font-weight:600; 
+    font-size:10px;
+  }
+  .node.finalist {
+    min-width: 220px;
+    max-width: 260px;
+    font-size:13px;
+    padding:6px 10px;
+  }
+  .node.winner {
+    min-width: 260px;
+    max-width: 300px;
+    font-size:14px;
+    padding:8px 12px;
+    font-weight:700;
+  }
+  .node.empty { opacity:0.6; font-style:italic; color:#333 }
+  #controls { max-width:2600px; margin:8px auto; display:flex; gap:8px; justify-content:flex-end; padding:0 6px; }
+  button { padding:8px 12px; background:#111; color:white; border:none; border-radius:6px; cursor:pointer; }
+  button.secondary { background:#eee; color:#111; border:1px solid #ccc; }
+  #chooser {
+    position:absolute;
+    display:none;
+    z-index:5000;
+    background:white;
+    border:1px solid #ccc;
+    box-shadow:0 6px 20px rgba(0,0,0,0.15);
+    border-radius:8px;
+    padding:8px;
+  }
+  #chooser button { display:block; width:100%; margin:6px 0; text-align:left; padding:8px; border-radius:6px; }
+  #status { font-size:13px; color:#333; margin-right:auto; align-self:center; padding-left:6px; }
+  @media (max-width:1100px){ .node.leaf{ min-width:140px; font-size:9px; } .node{font-size:10px} }
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <div id="status">Interactive Opeth Bracket – click a match node to choose a winner</div>
+  <button id="btn-copy" class="secondary">Copy JSON</button>
+  <button id="btn-reset">Reset</button>
+</div>
+
+<div id="stage">
+  <img id="bracket-bg" src="Opeth bracket test GPT.png" alt="Bracket background">
+  <div id="chooser"></div>
+</div>
+
+<div style="max-width:2600px;margin:12px auto;padding:0 6px;">
+  <strong>Notes:</strong> state is saved locally (in your browser). Use "Copy JSON" to export.
+</div>
+
+<script>
+const bgImage = 'Opeth bracket test GPT.png';
+
+const X = {
+  r64_left: 281,
+  r32_left: 541,
+  r16_left: 762,
+  r8_left: 925,
+  r4_left: 1087,
+  r4_right: 1475,
+  r8_right: 1640,
+  r16_right: 1802,
+  r32_right: 2020,
+  r64_right: 2281
+};
+
+// Positions Y pour les finalistes et le vainqueur
+const FINALIST_LEFT_Y = 558;
+const FINALIST_RIGHT_Y = 876;
+const FINAL_X = 1281;
+const WINNER_Y = 1259;
+
+const Y_r64 = [
+ 120,157.5,195,232.5,270,307.5,345,382.5,420,457.5,495,532.5,570,607.5,645,682.5,
+ 755,792.5,830,867.5,905,942.5,980,1017.5,1055,1092.5,1130,1167.5,1205,1242.5,1280,1317.5
+];
+
+const SONGS = [
+"Ghost of Perdition","Nepenthe","Advent","To rid the disease","Face of Melinda","§5","Cusp of Eternity","Burden",
+"Demon of the Fall","Forest of october","The Amen Corner","Harvest","A Fair Judgement","The Night and the Silent Water","The Twilight Is My Robe","The Leper affinity",
+"Windowpane","Sorceress","In mist she was standing","Hope Leaves","Serenity Painted Death","§4","By The Pain I See In Others","The Drapery Falls",
+"The Baying of the Hounds","Heart in Hand","Coil","The Lotus Eater","White Cluster","Death whispered a lullaby","Under the Weeping Moon","Bleak",
+"Blackwater Park","Will o the Wisp","The Funeral Portrait","Beneath the Mire","When","Porcelain Heart","Faith in Others","In my Time of Need",
+"April Ethereal","§3","Closure","To bid you farewell","Master's Apprentice","Karma","Dignity","The moor",
+"HeirApparent","The Devil's Orchard","Benighted","Black rose  immortal","Moonlapse Vertigo","Isolation Years","All things will pass","Reverie/Harlequin Forest",
+"Godhead's lament","Ending Credit","Eternal Rains will come","The Grand Conjuration","Hessian Peel","Wreath","Heritage","Deliverance"
+];
+
+// Album colors configuration
+const ALBUM_COLORS = {
+  'Orchid': { bg: '#000000', text: '#ff7ad9' },
+  'Morningrise': { bg: '#707070', text: '#bdbdbd' },
+  'My Arms, Your Hearse': { bg: '#613400', text: '#7e80ff' },
+  'Still Life': { bg: '#c12816', text: '#000000' },
+  'Blackwater Park': { bg: '#2a3030', text: '#aca9a2' },
+  'Deliverance': { bg: '#000000', text: '#707070' },
+  'Damnation': { bg: '#e8e8e8', text: '#000000' },
+  'Ghost Reveries': { bg: '#1e150c', text: '#e4b84a' },
+  'Watershed': { bg: '#505411', text: '#ffffff' },
+  'Heritage': { bg: '#692226', text: '#fc8326' },
+  'Pale Communion': { bg: '#616767', text: '#451301' },
+  'Sorceress': { bg: '#008c81', text: '#04214e' },
+  'In Cauda Venenum': { bg: '#584434', text: '#cf8400' },
+  'The Last Will and Testament': { bg: '#292317', text: '#5d574c' }
+};
+
+// Map each song to its album
+const SONG_TO_ALBUM = {
+  "Ghost of Perdition": "Ghost Reveries",
+  "Nepenthe": "The Last Will and Testament",
+  "Advent": "Morningrise",
+  "To rid the disease": "Damnation",
+  "Face of Melinda": "Still Life",
+  "§5": "The Last Will and Testament",
+  "Cusp of Eternity": "Pale Communion",
+  "Burden": "Watershed",
+  "Demon of the Fall": "My Arms, Your Hearse",
+  "Forest of october": "Orchid",
+  "The Amen Corner": "My Arms, Your Hearse",
+  "Harvest": "Blackwater Park",
+  "A Fair Judgement": "Deliverance",
+  "The Night and the Silent Water": "Morningrise",
+  "The Twilight Is My Robe": "Orchid",
+  "The Leper affinity": "Blackwater Park",
+  "Windowpane": "Damnation",
+  "Sorceress": "Sorceress",
+  "In mist she was standing": "Orchid",
+  "Hope Leaves": "Damnation",
+  "Serenity Painted Death": "Still Life",
+  "§4": "The Last Will and Testament",
+  "By The Pain I See In Others": "Deliverance",
+  "The Drapery Falls": "Blackwater Park",
+  "The Baying of the Hounds": "Ghost Reveries",
+  "Heart in Hand": "Pale Communion",
+  "Coil": "Watershed",
+  "The Lotus Eater": "Watershed",
+  "White Cluster": "Still Life",
+  "Death whispered a lullaby": "Damnation",
+  "Under the Weeping Moon": "Orchid",
+  "Bleak": "Blackwater Park",
+  "Blackwater Park": "Blackwater Park",
+  "Will o the Wisp": "Sorceress",
+  "The Funeral Portrait": "Blackwater Park",
+  "Beneath the Mire": "Ghost Reveries",
+  "When": "My Arms, Your Hearse",
+  "Porcelain Heart": "Watershed",
+  "Faith in Others": "Pale Communion",
+  "In my Time of Need": "Damnation",
+  "April Ethereal": "My Arms, Your Hearse",
+  "§3": "The Last Will and Testament",
+  "Closure": "Damnation",
+  "To bid you farewell": "Morningrise",
+  "Master's Apprentice": "Deliverance",
+  "Karma": "My Arms, Your Hearse",
+  "Dignity": "In Cauda Venenum",
+  "The moor": "Still Life",
+  "HeirApparent": "Watershed",
+  "The Devil's Orchard": "Heritage",
+  "Benighted": "Still Life",
+  "Black rose  immortal": "Morningrise",
+  "Moonlapse Vertigo": "Still Life",
+  "Isolation Years": "Ghost Reveries",
+  "All things will pass": "In Cauda Venenum",
+  "Reverie/Harlequin Forest": "Ghost Reveries",
+  "Godhead's lament": "Still Life",
+  "Ending Credit": "Damnation",
+  "Eternal Rains will come": "Pale Communion",
+  "The Grand Conjuration": "Ghost Reveries",
+  "Hessian Peel": "Watershed",
+  "Wreath": "Deliverance",
+  "Heritage": "Heritage",
+  "Deliverance": "Deliverance"
+};
+
+function getColorForSong(songName) {
+  const album = SONG_TO_ALBUM[songName];
+  return album ? ALBUM_COLORS[album] : { bg: '#ffffff', text: '#000000' };
+}
+
+function pairAvg(arr){
+  const res = [];
+  for(let i=0;i<arr.length;i+=2){
+    res.push( (arr[i]+arr[i+1]) / 2 );
+  }
+  return res;
+}
+
+const Y_r32 = pairAvg(Y_r64);
+const Y_r16 = pairAvg(Y_r32);
+const Y_r8  = pairAvg(Y_r16);
+const Y_r4  = pairAvg(Y_r8);
+
+function buildSide(side){
+  const isLeft = (side==='left');
+  const xs = isLeft
+    ? [ X.r64_left, X.r32_left, X.r16_left, X.r8_left, X.r4_left ]
+    : [ X.r64_right, X.r32_right, X.r16_right, X.r8_right, X.r4_right ];
+
+  const ys = [ Y_r64, Y_r32, Y_r16, Y_r8, Y_r4 ];
+
+  const rounds = [];
+  for(let level=0; level<ys.length; level++){
+    const levelNodes = [];
+    for(let i=0;i<ys[level].length;i++){
+      levelNodes.push({
+        roundIndex: level,
+        idx: i,
+        x: xs[level],
+        y: ys[level][i],
+        text: null,
+        key: `${side}_${level}_${i}`
+      });
+    }
+    rounds.push(levelNodes);
+  }
+  
+  // Finaliste (niveau 5)
+  const finalistY = isLeft ? FINALIST_LEFT_Y : FINALIST_RIGHT_Y;
+  const championNode = {
+    roundIndex: 5,
+    idx: 0,
+    x: FINAL_X,
+    y: finalistY,
+    key: `${side}_5_0`,
+    text: null,
+    isFinalist: true
+  };
+  rounds.push([championNode]);
+  return rounds;
+}
+
+const leftRounds = buildSide('left');
+const rightRounds = buildSide('right');
+
+// Nœud final (vainqueur)
+const finalNode = { 
+  roundIndex: 6, 
+  idx: 0, 
+  x: FINAL_X, 
+  y: WINNER_Y, 
+  key: 'final_6_0', 
+  text: null,
+  isWinner: true
+};
+
+for(let i=0;i<32;i++){
+  leftRounds[0][i].text = SONGS[i] || `(slot ${i+1})`;
+  rightRounds[0][i].text = SONGS[32 + i] || `(slot ${32+i+1})`;
+}
+
+function childrenOf(sideRounds, level, idx){
+  if(level === 0) return null;
+  return [ sideRounds[level-1][idx*2], sideRounds[level-1][idx*2+1] ];
+}
+
+const stage = document.getElementById('stage');
+const chooser = document.getElementById('chooser');
+
+function makeNodeElement(node, side){
+  const el = document.createElement('div');
+  let classes = 'node';
+  if(node.roundIndex === 0) classes += ' leaf';
+  if(node.isFinalist) classes += ' finalist';
+  if(node.isWinner) classes += ' winner';
+  el.className = classes;
+  
+  el.style.left = (node.x/2600*100) + '%';
+  el.style.top = (node.y/1500*100) + '%';
+  el.dataset.key = node.key;
+  el.dataset.side = side;
+  el.dataset.round = node.roundIndex;
+  el.dataset.idx = node.idx;
+  el.textContent = node.text || '—';
+  if(!node.text) el.classList.add('empty');
+  
+  // Apply album colors for leaf nodes
+  if(node.roundIndex === 0 && node.text) {
+    const colors = getColorForSong(node.text);
+    el.style.backgroundColor = colors.bg;
+    el.style.color = colors.text;
+    el.style.borderColor = colors.text;
+  }
+  
+  el.addEventListener('click', onNodeClick);
+  return el;
+}
+
+const state = {
+  leftRounds, rightRounds, finalNode,
+  nodesMap: {},
+  data: {}
+};
+
+function renderAll(){
+  document.querySelectorAll('.node').forEach(n=>n.remove());
+  state.nodesMap = {};
+
+  leftRounds.forEach((levelArr)=>{
+    levelArr.forEach(n=>{
+      const el = makeNodeElement(n,'left');
+      stage.appendChild(el);
+      state.nodesMap[n.key] = {node:n, el:el};
+    });
+  });
+  
+  rightRounds.forEach((levelArr)=>{
+    levelArr.forEach(n=>{
+      const el = makeNodeElement(n,'right');
+      stage.appendChild(el);
+      state.nodesMap[n.key] = {node:n, el:el};
+    });
+  });
+  
+  const finalEl = makeNodeElement(finalNode,'final');
+  stage.appendChild(finalEl);
+  state.nodesMap[finalNode.key] = {node: finalNode, el: finalEl};
+
+  leftRounds[0].forEach(n => { state.data[n.key] = {text: n.text}; });
+  rightRounds[0].forEach(n => { state.data[n.key] = {text: n.text}; });
+
+  Object.keys(state.nodesMap).forEach(k => {
+    if(!(k in state.data)) state.data[k] = {text: state.nodesMap[k].node.text || null};
+    const el = state.nodesMap[k].el;
+    const txt = state.data[k].text;
+    el.textContent = txt || '—';
+    el.classList.toggle('empty', !txt);
+    
+    // Apply colors if text exists
+    if(txt) {
+      const colors = getColorForSong(txt);
+      el.style.backgroundColor = colors.bg;
+      el.style.color = colors.text;
+      el.style.borderColor = colors.text;
+    }
+  });
+
+  positionNodesAbsolute();
+}
+
+function positionNodesAbsolute(){
+  const img = document.getElementById('bracket-bg');
+  const rect = img.getBoundingClientRect();
+  const naturalW = img.naturalWidth;
+  const naturalH = img.naturalHeight;
+  
+  Object.values(state.nodesMap).forEach(obj=>{
+    const n = obj.node;
+    const el = obj.el;
+    const leftPx = n.x;
+    const topPx = n.y;
+    const scaleX = rect.width / naturalW;
+    const scaleY = rect.height / naturalH;
+    const leftDisplayed = rect.left + leftPx * scaleX;
+    const topDisplayed  = rect.top  + topPx * scaleY;
+    const stageRect = stage.getBoundingClientRect();
+    const insideLeft = leftDisplayed - stageRect.left;
+    const insideTop  = topDisplayed - stageRect.top;
+    el.style.left = insideLeft + 'px';
+    el.style.top = insideTop + 'px';
+    el.style.position = 'absolute';
+  });
+}
+
+function onNodeClick(e){
+  e.stopPropagation();
+  const el = e.currentTarget;
+  const key = el.dataset.key;
+  const round = parseInt(el.dataset.round);
+  const side = el.dataset.side;
+  
+  if(side === 'final'){
+    const leftChampKey = leftRounds[5][0].key;
+    const rightChampKey = rightRounds[5][0].key;
+    showChooser(el, leftChampKey, rightChampKey);
+    return;
+  }
+  
+  const level = round;
+  if(level === 0){
+    const idx = parseInt(el.dataset.idx);
+    const sideStr = side;
+    const parent = (sideStr === 'left' ? leftRounds : rightRounds)[1][Math.floor(idx/2)];
+    const parentDom = state.nodesMap[parent.key].el;
+    const childA = (sideStr === 'left' ? leftRounds : rightRounds)[0][Math.floor(idx/2)*2];
+    const childB = (sideStr === 'left' ? leftRounds : rightRounds)[0][Math.floor(idx/2)*2+1];
+    showChooser(parentDom, childA.key, childB.key);
+    return;
+  }
+  
+  const idx = parseInt(el.dataset.idx);
+  const sideRounds = (side === 'left' ? leftRounds : rightRounds);
+  const children = childrenOf(sideRounds, level, idx);
+  if(!children) return;
+  showChooser(el, children[0].key, children[1].key);
+}
+
+function showChooser(anchorEl, childKeyA, childKeyB){
+  const childA = state.nodesMap[childKeyA].node;
+  const childB = state.nodesMap[childKeyB].node;
+  const textA = state.data[childKeyA] && state.data[childKeyA].text ? state.data[childKeyA].text : (childA.text || '—');
+  const textB = state.data[childKeyB] && state.data[childKeyB].text ? state.data[childKeyB].text : (childB.text || '—');
+
+  chooser.innerHTML = '';
+  const btnA = document.createElement('button');
+  btnA.textContent = 'Choose: ' + textA;
+  btnA.onclick = () => { chooseWinnerForParent(anchorEl, childKeyA); hideChooser(); };
+
+  const btnB = document.createElement('button');
+  btnB.textContent = 'Choose: ' + textB;
+  btnB.onclick = () => { chooseWinnerForParent(anchorEl, childKeyB); hideChooser(); };
+
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.style.background = '#eee';
+  cancel.onclick = () => { hideChooser(); };
+
+  chooser.appendChild(btnA);
+  chooser.appendChild(btnB);
+  chooser.appendChild(cancel);
+
+  const aRect = anchorEl.getBoundingClientRect();
+  const stageRect = stage.getBoundingClientRect();
+  chooser.style.display = 'block';
+  chooser.style.left = (aRect.left - stageRect.left + aRect.width + 8) + 'px';
+  chooser.style.top  = (aRect.top - stageRect.top) + 'px';
+}
+
+function hideChooser(){ 
+  chooser.style.display = 'none'; 
+  chooser.innerHTML = ''; 
+}
+
+function chooseWinnerForParent(parentEl, childKey){
+  const chosenText = state.data[childKey] && state.data[childKey].text ? state.data[childKey].text : state.nodesMap[childKey].node.text;
+  const parent = Object.values(state.nodesMap).find(o=>o.el===parentEl);
+  if(!parent) return;
+  const pkey = parent.node.key;
+  state.data[pkey] = { text: chosenText };
+  parent.el.textContent = chosenText;
+  parent.el.classList.remove('empty');
+  
+  // Apply colors from the winning song
+  const colors = getColorForSong(chosenText);
+  parent.el.style.backgroundColor = colors.bg;
+  parent.el.style.color = colors.text;
+  parent.el.style.borderColor = colors.text;
+  
+  propagateUp(pkey);
+  saveState();
+}
+
+function propagateUp(childKey){
+  const [side, level, idx] = childKey.split('_');
+  const lvl = parseInt(level), index = parseInt(idx);
+  
+  if(lvl >= 5){
+    const leftChampKey = leftRounds[5][0].key;
+    const rightChampKey = rightRounds[5][0].key;
+    const leftText = (state.data[leftChampKey] && state.data[leftChampKey].text) || null;
+    const rightText = (state.data[rightChampKey] && state.data[rightChampKey].text) || null;
+    
+    if(leftText) {
+      const leftDom = state.nodesMap[leftChampKey].el;
+      leftDom.textContent = leftText; 
+      leftDom.classList.remove('empty');
+    }
+    if(rightText) {
+      const rightDom = state.nodesMap[rightChampKey].el;
+      rightDom.textContent = rightText; 
+      rightDom.classList.remove('empty');
+    }
+    if(leftText && rightText){
+      const finalEl = state.nodesMap[finalNode.key].el;
+      finalEl.textContent = 'Click to choose final winner';
+      finalEl.classList.remove('empty');
+    }
+    return;
+  }
+
+  const parentLevel = lvl + 1;
+  const parentIdx = Math.floor(index / 2);
+  const sideRounds = (side === 'left') ? leftRounds : rightRounds;
+  
+  if(parentLevel <= 5){
+    const parentNode = sideRounds[parentLevel][parentIdx];
+    const children = childrenOf(sideRounds, parentLevel, parentIdx);
+    const c0 = children[0].key, c1 = children[1].key;
+    const t0 = state.data[c0] && state.data[c0].text ? state.data[c0].text : null;
+    const t1 = state.data[c1] && state.data[c1].text ? state.data[c1].text : null;
+    const parentDom = state.nodesMap[parentNode.key].el;
+    
+    if(t0 && !t1){
+      parentDom.textContent = '(one side chosen)';
+      parentDom.classList.remove('empty');
+    } else if(t1 && !t0){
+      parentDom.textContent = '(one side chosen)';
+      parentDom.classList.remove('empty');
+    } else if(t0 && t1){
+      parentDom.textContent = 'Click to choose';
+      parentDom.classList.remove('empty');
+    }
+  }
+}
+
+function saveState(){
+  const payload = {};
+  Object.keys(state.nodesMap).forEach(k=>{
+    payload[k] = (state.data[k] && state.data[k].text) ? state.data[k].text : null;
+  });
+  localStorage.setItem('opeth_bracket_state_v1', JSON.stringify(payload));
+}
+
+function loadState(){
+  const raw = localStorage.getItem('opeth_bracket_state_v1');
+  if(!raw) return false;
+  try{
+    const payload = JSON.parse(raw);
+    Object.keys(payload).forEach(k=>{
+      if(k in state.nodesMap){
+        state.data[k] = { text: payload[k] };
+      }
+    });
+    return true;
+  }catch(e){ return false; }
+}
+
+document.getElementById('btn-copy').addEventListener('click', ()=>{
+  const out = {};
+  Object.keys(state.nodesMap).forEach(k=>{
+    out[k] = state.data[k] && state.data[k].text ? state.data[k].text : null;
+  });
+  navigator.clipboard.writeText(JSON.stringify(out,null,2)).then(()=> alert('Bracket JSON copied to clipboard'));
+});
+
+document.getElementById('btn-reset').addEventListener('click', ()=>{
+  if(!confirm('Reset bracket?')) return;
+  localStorage.removeItem('opeth_bracket_state_v1');
+  Object.keys(state.nodesMap).forEach(k=>{
+    if(k.includes('_0_')) {
+      state.data[k] = { text: state.nodesMap[k].node.text };
+    } else {
+      state.data[k] = { text: null };
+    }
+  });
+  Object.keys(state.nodesMap).forEach(k=>{
+    const el = state.nodesMap[k].el;
+    const txt = state.data[k] && state.data[k].text ? state.data[k].text : null;
+    el.textContent = txt || (state.nodesMap[k].node.text || '—');
+    el.classList.toggle('empty', !txt);
+    
+    // Apply colors when loading state
+    if(txt) {
+      const colors = getColorForSong(txt);
+      el.style.backgroundColor = colors.bg;
+      el.style.color = colors.text;
+      el.style.borderColor = colors.text;
+    }
+  });
+  saveState();
+});
+
+document.addEventListener('click', (e)=>{ 
+  if(!chooser.contains(e.target)) hideChooser(); 
+});
+
+const img = document.getElementById('bracket-bg');
+img.onload = () => {
+  const rect = img.getBoundingClientRect();
+  stage.style.width = rect.width + 'px';
+  stage.style.height = rect.height + 'px';
+  renderAll();
+  loadState();
+  Object.keys(state.nodesMap).forEach(k=>{
+    const el = state.nodesMap[k].el;
+    const txt = state.data[k] && state.data[k].text ? state.data[k].text : null;
+    el.textContent = txt || (state.nodesMap[k].node.text || '—');
+    el.classList.toggle('empty', !txt);
+  });
+  positionNodesAbsolute();
+};
+
+if(img.complete) img.onload();
+
+</script>
+</body>
+</html>
