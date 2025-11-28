@@ -76,6 +76,8 @@
 </head>
 <body>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
 <div id="controls">
   <div id="status">Interactive Opeth Bracket – click a match node to choose a winner</div>
   <button id="btn-export" class="secondary">Export PNG</button>
@@ -575,6 +577,60 @@ document.getElementById('btn-copy').addEventListener('click', ()=>{
     out[k] = state.data[k] && state.data[k].text ? state.data[k].text : null;
   });
   navigator.clipboard.writeText(JSON.stringify(out,null,2)).then(()=> alert('Bracket JSON copied to clipboard'));
+});
+
+// Export PNG
+document.getElementById('btn-export').addEventListener('click', async ()=>{
+  // Check if html2canvas is loaded
+  if(typeof html2canvas === 'undefined') {
+    alert('Export library not loaded yet. Please wait a moment and try again.');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-export');
+  const originalText = btn.textContent;
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+  
+  try {
+    // Hide the chooser if it's open
+    const wasChooserVisible = chooser.style.display === 'block';
+    hideChooser();
+    
+    // Capture the stage
+    const canvas = await html2canvas(stage, {
+      backgroundColor: '#ffffff',
+      scale: 2, // Higher quality
+      logging: true,
+      useCORS: true,
+      allowTaint: true
+    });
+    
+    // Restore chooser if it was open
+    if(wasChooserVisible) {
+      chooser.style.display = 'block';
+    }
+    
+    // Convert to blob and download
+    canvas.toBlob((blob) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'opeth-bracket.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      btn.textContent = originalText;
+      btn.disabled = false;
+    });
+  } catch(error) {
+    console.error('Export failed:', error);
+    alert('Export failed: ' + error.message);
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
 });
 
 document.getElementById('btn-reset').addEventListener('click', ()=>{
